@@ -75,8 +75,9 @@ class EmailServiceWrapper {
             const SESEmailProvider = require('../../adapters/email/ses');
             const sesConfig = emailConfig.ses || {};
 
+            // SES adapter expects config with errorHandler at top level
             emailProvider = new SESEmailProvider({
-                config: sesConfig,
+                ...sesConfig,
                 errorHandler
             });
 
