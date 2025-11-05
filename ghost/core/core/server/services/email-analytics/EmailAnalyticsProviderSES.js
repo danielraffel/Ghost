@@ -17,7 +17,9 @@ class EmailAnalyticsProviderSES {
     constructor({config, contentPath}) {
         this.#config = config;
         this.#lastFetchedEventId = null;
-        this.#processedMessageIds = new Set(); // Track processed messages to avoid duplicates
+        // Track processed messages with timestamps (Map: messageId => timestamp)
+        // This prevents duplicates AND allows cleanup of old entries
+        this.#processedMessageIds = new Map();
 
         // Initialize SQS client if configuration is provided
         if (config?.queueUrl) {
@@ -69,21 +71,42 @@ class EmailAnalyticsProviderSES {
         }
 
         try {
-            // Poll SQS queue for messages
-            const messages = await this.#pollSQSQueue(options.maxEvents || 10);
+            // Poll SQS queue continuously until empty (SQS returns max 10 per call)
+            const allMessages = [];
+            let hasMore = true;
+            const maxIterations = 100; // Safety limit to prevent infinite loops
+            let iterations = 0;
 
-            if (!messages || messages.length === 0) {
+            while (hasMore && iterations < maxIterations) {
+                const messages = await this.#pollSQSQueue(10);
+
+                if (!messages || messages.length === 0) {
+                    hasMore = false;
+                } else {
+                    allMessages.push(...messages);
+                    debug(`Batch ${iterations + 1}: Received ${messages.length} messages (total: ${allMessages.length})`);
+
+                    // If we got fewer than 10, the queue is likely empty
+                    if (messages.length < 10) {
+                        hasMore = false;
+                    }
+                }
+
+                iterations++;
+            }
+
+            if (allMessages.length === 0) {
                 debug('No messages in queue');
                 return;
             }
 
-            debug(`Received ${messages.length} messages from SQS`);
+            debug(`Total received ${allMessages.length} messages from SQS`);
 
             // Extract and normalize events from SQS messages
             const events = [];
             const messagesToDelete = [];
 
-            for (const message of messages) {
+            for (const message of allMessages) {
                 try {
                     // Skip if already processed (deduplication)
                     if (this.#processedMessageIds.has(message.MessageId)) {
@@ -92,24 +115,29 @@ class EmailAnalyticsProviderSES {
                         continue;
                     }
 
+                    // Clean up old processed message IDs (older than 24 hours)
+                    this.#cleanupProcessedMessageIds();
+
                     // Parse SNS message wrapper
                     const snsMessage = JSON.parse(message.Body);
 
                     // Parse SES event from SNS message
                     const sesEvent = JSON.parse(snsMessage.Message);
 
-                    // Normalize to Ghost format
-                    const normalizedEvent = this.#normalizeEvent(sesEvent);
+                    // Normalize to Ghost format (returns array for multi-recipient events)
+                    const normalizedEvents = this.#normalizeEvent(sesEvent);
 
-                    if (normalizedEvent) {
-                        // Apply filters
-                        if (this.#shouldIncludeEvent(normalizedEvent, options)) {
-                            events.push(normalizedEvent);
+                    if (normalizedEvents && normalizedEvents.length > 0) {
+                        // Apply filters to each event
+                        for (const normalizedEvent of normalizedEvents) {
+                            if (this.#shouldIncludeEvent(normalizedEvent, options)) {
+                                events.push(normalizedEvent);
+                            }
                         }
 
                         // Mark for deletion (successfully processed)
                         messagesToDelete.push(message);
-                        this.#processedMessageIds.add(message.MessageId);
+                        this.#processedMessageIds.set(message.MessageId, Date.now());
                     }
                 } catch (error) {
                     logging.error('[SES Analytics] Error processing SQS message:', error);
@@ -190,6 +218,33 @@ class EmailAnalyticsProviderSES {
     }
 
     /**
+     * Clean up old processed message IDs to prevent memory leak
+     * @private
+     */
+    #cleanupProcessedMessageIds() {
+        const now = Date.now();
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+        const CLEANUP_THRESHOLD = 1000; // Only cleanup if we have more than 1000 entries
+
+        // Only run cleanup if we have accumulated many entries
+        if (this.#processedMessageIds.size < CLEANUP_THRESHOLD) {
+            return;
+        }
+
+        let removedCount = 0;
+        for (const [messageId, timestamp] of this.#processedMessageIds.entries()) {
+            if (now - timestamp > MAX_AGE_MS) {
+                this.#processedMessageIds.delete(messageId);
+                removedCount++;
+            }
+        }
+
+        if (removedCount > 0) {
+            debug(`Cleaned up ${removedCount} old message IDs (total remaining: ${this.#processedMessageIds.size})`);
+        }
+    }
+
+    /**
      * Check if event should be included based on filters
      * @private
      * @param {Object} event - Normalized event
@@ -220,6 +275,7 @@ class EmailAnalyticsProviderSES {
     /**
      * Normalize SES event to Ghost format
      * @private
+     * @returns {Array} Array of normalized events (one per recipient)
      */
     #normalizeEvent(sesEvent) {
         try {
@@ -233,18 +289,18 @@ class EmailAnalyticsProviderSES {
 
             if (!messageId) {
                 debug('Skipping event without message ID');
-                return null;
+                return [];
             }
 
             // Extract email ID from message tags (set during send)
             const emailId = this.#extractEmailId(mail.tags, mail.headers);
 
-            // Get recipient email
-            const recipientEmail = this.#getRecipientEmail(event);
+            // Get ALL recipient emails (may be multiple per SES event)
+            const recipients = this.#getAllRecipients(event);
 
-            if (!recipientEmail) {
+            if (recipients.length === 0) {
                 debug('Skipping event without recipient email');
-                return null;
+                return [];
             }
 
             // Map SES event type to Ghost event type
@@ -252,43 +308,51 @@ class EmailAnalyticsProviderSES {
 
             if (!ghostEventType) {
                 debug(`Skipping unsupported event type: ${eventType}`);
-                return null;
+                return [];
             }
 
-            // Build normalized event
-            const normalizedEvent = {
-                id: `${messageId}-${eventType}-${Date.now()}`,
-                type: ghostEventType,
-                recipientEmail: recipientEmail,
-                emailId: emailId,
-                providerId: messageId,
-                timestamp: new Date(event.timestamp || mail.timestamp),
-            };
+            // Create separate normalized event for EACH recipient
+            const normalizedEvents = recipients.map((recipientEmail, index) => {
+                const normalizedEvent = {
+                    id: `${messageId}-${eventType}-${recipientEmail}-${Date.now()}-${index}`,
+                    type: ghostEventType,
+                    recipientEmail: recipientEmail,
+                    emailId: emailId,
+                    providerId: messageId,
+                    timestamp: new Date(event.timestamp || mail.timestamp),
+                };
 
-            // Add severity and error info for bounces
-            if (eventType === 'Bounce') {
-                const bounce = event.bounce || {};
-                normalizedEvent.severity = bounce.bounceType === 'Permanent' ? 'permanent' : 'temporary';
+                // Add severity and error info for bounces (recipient-specific)
+                if (eventType === 'Bounce') {
+                    const bounce = event.bounce || {};
+                    normalizedEvent.severity = bounce.bounceType === 'Permanent' ? 'permanent' : 'temporary';
 
-                if (bounce.bouncedRecipients && bounce.bouncedRecipients[0]) {
-                    normalizedEvent.error = {
-                        code: bounce.bouncedRecipients[0].status || 550,
-                        message: bounce.bouncedRecipients[0].diagnosticCode || 'Email bounced'
-                    };
+                    // Find the specific bounce info for this recipient
+                    if (bounce.bouncedRecipients) {
+                        const recipientBounce = bounce.bouncedRecipients.find(r => r.emailAddress === recipientEmail);
+                        if (recipientBounce) {
+                            normalizedEvent.error = {
+                                code: recipientBounce.status || 550,
+                                message: recipientBounce.diagnosticCode || 'Email bounced'
+                            };
+                        }
+                    }
                 }
-            }
 
-            // Add severity for complaints
-            if (eventType === 'Complaint') {
-                normalizedEvent.severity = 'permanent';
-            }
+                // Add severity for complaints
+                if (eventType === 'Complaint') {
+                    normalizedEvent.severity = 'permanent';
+                }
 
-            debug(`Normalized event: ${ghostEventType} for ${recipientEmail}`);
-            return normalizedEvent;
+                return normalizedEvent;
+            });
+
+            debug(`Normalized ${normalizedEvents.length} event(s): ${ghostEventType} for ${recipients.length} recipient(s)`);
+            return normalizedEvents;
 
         } catch (error) {
             logging.error('[SES Analytics] Error normalizing event:', error);
-            return null;
+            return [];
         }
     }
 
@@ -342,28 +406,34 @@ class EmailAnalyticsProviderSES {
     }
 
     /**
-     * Get recipient email from SES event
+     * Get all recipient emails from SES event
      * @private
+     * @returns {Array<string>} Array of recipient email addresses
      */
-    #getRecipientEmail(event) {
-        // Try different locations where recipient might be
-        if (event.mail && event.mail.destination && event.mail.destination[0]) {
-            return event.mail.destination[0];
+    #getAllRecipients(event) {
+        const recipients = [];
+
+        // For delivery events - may have multiple recipients
+        if (event.delivery && event.delivery.recipients && event.delivery.recipients.length > 0) {
+            return event.delivery.recipients;
         }
 
-        if (event.bounce && event.bounce.bouncedRecipients && event.bounce.bouncedRecipients[0]) {
-            return event.bounce.bouncedRecipients[0].emailAddress;
+        // For bounce events - each bouncedRecipient needs separate event
+        if (event.bounce && event.bounce.bouncedRecipients && event.bounce.bouncedRecipients.length > 0) {
+            return event.bounce.bouncedRecipients.map(r => r.emailAddress);
         }
 
-        if (event.complaint && event.complaint.complainedRecipients && event.complaint.complainedRecipients[0]) {
-            return event.complaint.complainedRecipients[0].emailAddress;
+        // For complaint events - each complainedRecipient needs separate event
+        if (event.complaint && event.complaint.complainedRecipients && event.complaint.complainedRecipients.length > 0) {
+            return event.complaint.complainedRecipients.map(r => r.emailAddress);
         }
 
-        if (event.delivery && event.delivery.recipients && event.delivery.recipients[0]) {
-            return event.delivery.recipients[0];
+        // Fallback to mail.destination (open/click events)
+        if (event.mail && event.mail.destination && event.mail.destination.length > 0) {
+            return event.mail.destination;
         }
 
-        return null;
+        return [];
     }
 }
 
