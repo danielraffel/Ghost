@@ -71,14 +71,20 @@ class EmailAnalyticsProviderSES {
         }
 
         try {
-            // Poll SQS queue continuously until empty (SQS returns max 10 per call)
+            // Poll SQS queue continuously until empty or maxEvents reached
+            // SQS returns max 10 per call, so we loop
             const allMessages = [];
             let hasMore = true;
-            const maxIterations = 100; // Safety limit to prevent infinite loops
+            const maxIterations = 1000; // Safety limit: 10,000 messages max (1000 * 10)
             let iterations = 0;
+            const maxEvents = options.maxEvents || Infinity;
 
-            while (hasMore && iterations < maxIterations) {
-                const messages = await this.#pollSQSQueue(10);
+            while (hasMore && iterations < maxIterations && allMessages.length < maxEvents) {
+                // Calculate how many more messages we can fetch
+                const remaining = maxEvents - allMessages.length;
+                const fetchSize = Math.min(10, remaining);
+
+                const messages = await this.#pollSQSQueue(fetchSize);
 
                 if (!messages || messages.length === 0) {
                     hasMore = false;
@@ -86,8 +92,14 @@ class EmailAnalyticsProviderSES {
                     allMessages.push(...messages);
                     debug(`Batch ${iterations + 1}: Received ${messages.length} messages (total: ${allMessages.length})`);
 
-                    // If we got fewer than 10, the queue is likely empty
-                    if (messages.length < 10) {
+                    // If we got fewer than requested, the queue is likely empty
+                    if (messages.length < fetchSize) {
+                        hasMore = false;
+                    }
+
+                    // Stop if we've reached maxEvents
+                    if (allMessages.length >= maxEvents) {
+                        debug(`Reached maxEvents limit of ${maxEvents}`);
                         hasMore = false;
                     }
                 }
