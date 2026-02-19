@@ -103,6 +103,35 @@ export default class FeatureService extends Service {
         return document.querySelector('#ember-app') !== null;
     }
 
+    _reconcileAdminForwardState() {
+        // Only proceed if we're on a *.ghost.io or *.ghost.is domain
+        const hostname = window.location.hostname;
+        if (!hostname.endsWith('.ghost.io') && !hostname.endsWith('.ghost.is')) {
+            return;
+        }
+
+        const cookieName = 'ghost-admin-forward';
+        const hasAdminForwardCookie = !!getCookie(cookieName);
+        let shouldReload = false;
+
+        // Update cookie based on feature flag and reload only when cookie state changes
+        if (hasAdminForwardCookie && !this.adminForward) {
+            // User disabled the flag - remove cookie and reload to exit React shell
+            deleteCookie(cookieName);
+            shouldReload = true;
+        } else if (!hasAdminForwardCookie && this.adminForward) {
+            // User enabled the flag - set cookie and reload to enter React shell
+            setCookie(cookieName, '1', 365);
+            shouldReload = true;
+        }
+
+        // Only reload when cookie state changes (prevents infinite reload loop)
+        // The React shell will wrap Ember on the next load based on the cookie
+        if (shouldReload) {
+            window.location.reload();
+        }
+    }
+
     fetch() {
         return this.settings.fetch().then(() => {
             this.set('_user', this.session.user);
