@@ -1,7 +1,7 @@
 import React from 'react';
-import TopLevelGroup from '../../TopLevelGroup';
+import TopLevelGroup from '../../top-level-group';
 import {IconLabel, SettingGroupContent, withErrorBoundary} from '@tryghost/admin-x-design-system';
-import {useGlobalData} from '../../providers/GlobalDataProvider';
+import {useGlobalData} from '../../providers/global-data-provider';
 
 const EmailProvider: React.FC<{keywords: string[]}> = ({keywords}) => {
     const {config} = useGlobalData();
