@@ -52,6 +52,11 @@
             "FileStore": {},
             "S3RedirectsStore": {}
         },
+        "email": {
+            "active": "mailgun",
+            "mailgun": {},
+            "ses": {}
+        },
         "route-settings": {
             "active": "FileStore",
             "FileStore": {},

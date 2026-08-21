@@ -81,6 +81,8 @@
     },
     "dependencies": {
         "@aws-sdk/client-s3": "3.1079.0",
+        "@aws-sdk/client-ses": "3.1079.0",
+        "@aws-sdk/client-sqs": "3.1079.0",
         "@breejs/later": "catalog:",
         "@extractus/oembed-extractor": "3.2.1",
         "@faker-js/faker": "catalog:",
@@ -298,6 +300,7 @@
         "postcss": "catalog:",
         "postcss-cli": "11.0.1",
         "qs": "6.15.3",
+        "should": "catalog:",
         "sinon": "catalog:",
         "supertest": "catalog:",
         "tmp": "0.2.7",

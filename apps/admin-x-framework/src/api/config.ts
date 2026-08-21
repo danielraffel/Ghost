@@ -23,6 +23,11 @@ export type Config = {
     labs: Record<string, boolean>;
     stripeDirect: boolean;
     mail: string;
+    mailgunIsConfigured?: boolean;
+    emailProvider?: {
+        active: 'ses' | 'mailgun' | null;
+        isConfigured: boolean;
+    };
     stats?: JSONObject & {
         endpoint?: string;
         id?: string;

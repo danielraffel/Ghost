@@ -4,7 +4,7 @@ import type {ConfigInstance} from '../../../shared/config/loader';
 // @ts-expect-error This module lacks type definitions.
 import type DomainEvents from '@tryghost/domain-events';
 import type {GhostMetrics} from '@tryghost/metrics';
-import {EmailAnalyticsService, type CursorSeed, type EmailAnalyticsFetchResult, type JobNames} from './email-analytics-service';
+import {EmailAnalyticsService, type CursorSeed, type EmailAnalyticsFetchResult, type FetchEvents, type JobNames} from './email-analytics-service';
 import type {BatchEventProcessor} from './batch-event-processor';
 import type {Queries} from './lib/queries';
 import {fetchMailgunEvents} from './fetch-mailgun-events';
@@ -35,7 +35,8 @@ export class EmailAnalyticsServiceWrapper {
         cursorSeed,
         createEventProcessor,
         metrics,
-        settingsCache
+        settingsCache,
+        fetchEvents
     }: Readonly<{
         config: Pick<ConfigInstance, 'get'>;
         domainEvents: Pick<DomainEvents, 'subscribe'>;
@@ -47,6 +48,7 @@ export class EmailAnalyticsServiceWrapper {
         createEventProcessor: () => BatchEventProcessor;
         metrics: Pick<GhostMetrics, 'metric'>;
         settingsCache: {get: (key: string) => unknown};
+        fetchEvents?: FetchEvents;
     }>): void {
         if (this.#service) {
             return;
@@ -56,7 +58,7 @@ export class EmailAnalyticsServiceWrapper {
         this.#metrics = metrics;
 
         this.#service = new EmailAnalyticsService({
-            fetchEvents: (options) => fetchMailgunEvents({...options, config, settings: settingsCache, tags: mailgunTags}),
+            fetchEvents: fetchEvents ?? ((options) => fetchMailgunEvents({...options, config, settings: settingsCache, tags: mailgunTags})),
             queries,
             jobNames,
             cursorSeed,

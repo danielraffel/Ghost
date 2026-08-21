@@ -55,16 +55,14 @@ class EmailServiceWrapper {
         const emailAnalyticsJobs = require('../email-analytics/jobs');
         const {cachedImageSizeFromUrl} = require('../../lib/image');
 
-        // capture errors from mailgun client and log them in sentry
+        const emailConfig = configService.get('adapters:email');
+        const activeProvider = emailConfig?.active || 'mailgun';
+
+        // Capture provider errors and report them consistently.
         const errorHandler = (error) => {
-            logging.info(`Capturing error for mailgun email provider service`);
+            logging.info(`Capturing error for ${activeProvider} email provider service`);
             sentry.captureException(error);
         };
-
-        // Mailgun client instance for email provider
-        const mailgunClient = new MailgunClient({
-            config: configService, settings: settingsCache, labs
-        });
         const i18nLanguage = settingsCache.get('locale') || 'en';
         const i18n = i18nLib(i18nLanguage, 'ghost');
 
@@ -73,11 +71,25 @@ class EmailServiceWrapper {
             i18n.changeLanguage(model.get('value'));
         });
 
-        const mailgunEmailProvider = new MailgunEmailProvider({
-            mailgunClient,
-            config: configService,
-            errorHandler
-        });
+        let emailProvider;
+        if (activeProvider === 'ses') {
+            const SESEmailProvider = require('../../adapters/email/ses');
+            emailProvider = new SESEmailProvider({
+                ...(emailConfig.ses || {}),
+                errorHandler
+            });
+            logging.info('Using Amazon SES email provider');
+        } else {
+            const mailgunClient = new MailgunClient({
+                config: configService, settings: settingsCache, labs
+            });
+            emailProvider = new MailgunEmailProvider({
+                mailgunClient,
+                config: configService,
+                errorHandler
+            });
+            logging.info('Using Mailgun email provider');
+        }
 
         const emailRenderer = new EmailRenderer({
             settingsCache,
@@ -103,7 +115,7 @@ class EmailServiceWrapper {
         });
 
         const sendingService = new SendingService({
-            emailProvider: mailgunEmailProvider,
+            emailProvider,
             emailRenderer,
             emailAddressService: emailAddressService.service
         });

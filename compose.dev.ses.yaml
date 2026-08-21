@@ -1,0 +1,18 @@
+services:
+  ghost-dev:
+    environment:
+      adapters__email__active: ses
+      adapters__email__ses__region: ${AWS_REGION}
+      adapters__email__ses__accessKeyId: ${AWS_ACCESS_KEY_ID}
+      adapters__email__ses__secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+      adapters__email__ses__fromEmail: ${SES_FROM_EMAIL}
+      adapters__email__ses__configurationSet: ${SES_CONFIGURATION_SET}
+      emailAnalytics__ses__queueUrl: ${SQS_QUEUE_URL}
+      emailAnalytics__ses__region: ${AWS_REGION}
+      emailAnalytics__ses__accessKeyId: ${AWS_ACCESS_KEY_ID}
+      emailAnalytics__ses__secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+      mail__transport: ses
+      mail__from: ${SES_FROM_EMAIL}
+      mail__options__region: ${AWS_REGION}
+      mail__options__accessKeyId: ${AWS_ACCESS_KEY_ID}
+      mail__options__secretAccessKey: ${AWS_SECRET_ACCESS_KEY}

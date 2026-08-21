@@ -26,6 +26,10 @@ import {StartAutomationEmailAnalyticsJobEvent} from './events/start-automation-e
 import {AUTOMATION_EMAIL_TAG} from '../member-welcome-emails/constants';
 import type * as AutomationsApi from '../automations/automations-api';
 import {AutomationEmailAnalyticsBatchProcessor} from './automation-email-analytics-batch-processor';
+import type {FetchEvents} from './email-analytics-service';
+import errors from '@tryghost/errors';
+// @ts-expect-error This legacy provider is JavaScript and has no type declarations.
+import EmailAnalyticsProviderSES from './email-analytics-provider-ses';
 
 export const newsletters = new EmailAnalyticsServiceWrapper({
     logName: 'newsletters'
@@ -96,6 +100,32 @@ export const init = ({
         help: 'Count of member stats aggregations'
     });
 
+    type SESAnalyticsConfig = {
+        queueUrl?: string;
+        region?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+    };
+    const emailConfig = config.get('adapters:email') as {
+        active?: string;
+        ses?: SESAnalyticsConfig;
+    } | undefined;
+    const sesAnalyticsConfig = (config.get('emailAnalytics:ses') || emailConfig?.ses) as SESAnalyticsConfig | undefined;
+    let newsletterFetchEvents: FetchEvents | undefined;
+
+    if (emailConfig?.active === 'ses') {
+        if (!sesAnalyticsConfig?.queueUrl) {
+            throw new errors.IncorrectUsageError({
+                message: 'SES email analytics requires emailAnalytics.ses.queueUrl configuration'
+            });
+        }
+
+        const sesProvider = new EmailAnalyticsProviderSES({config: sesAnalyticsConfig});
+        newsletterFetchEvents = ({batchHandler, ...options}) => {
+            return sesProvider.fetchLatest(batchHandler, options);
+        };
+    }
+
     newsletters.init({
         config,
         domainEvents,
@@ -118,6 +148,7 @@ export const init = ({
         },
         metrics,
         settingsCache,
+        fetchEvents: newsletterFetchEvents,
         createEventProcessor: () => (
             new NewsletterEmailAnalyticsBatchProcessor({
                 config,

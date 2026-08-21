@@ -148,7 +148,8 @@ export default class PublishOptions {
     }
 
     get mailgunIsConfigured() {
-        return this.settings.mailgunIsConfigured
+        return this.config.emailProvider?.isConfigured
+            || this.settings.mailgunIsConfigured
             || this.config.mailgunIsConfigured;
     }
 

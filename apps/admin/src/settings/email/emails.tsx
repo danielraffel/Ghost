@@ -1,5 +1,6 @@
 import DefaultRecipients from './default-recipients';
 import EnableNewsletters from './enable-newsletters';
+import EmailProviderStatus from './email-provider-status';
 import MailGun from './mailgun';
 import NewslettersTabContent, {type NewslettersFilter} from './newsletters/newsletters-tab-content';
 import React, {useEffect, useRef, useState} from 'react';
@@ -179,9 +180,11 @@ const Emails: React.FC = () => {
     const {settings, config} = useGlobalData();
     const [newslettersEnabled] = getSettingValues(settings, ['editor_default_email_recipients']) as [string];
     const hasNewslettersEnabled = newslettersEnabled !== 'disabled';
-    const hasMailgun = hasNewslettersEnabled && !config.mailgunIsConfigured;
+    const hasConfiguredProvider = config.emailProvider?.isConfigured || config.mailgunIsConfigured;
+    const hasMailgun = hasNewslettersEnabled && !hasConfiguredProvider;
     const visibleSearchKeywords = [
         searchKeywords.enableNewsletters,
+        searchKeywords.emailProvider,
         ...(hasNewslettersEnabled ? [searchKeywords.defaultRecipients] : []),
         searchKeywords.emails,
         ...(hasMailgun ? [searchKeywords.mailgun] : [])
@@ -189,6 +192,7 @@ const Emails: React.FC = () => {
 
     return (
         <SearchableSection keywords={visibleSearchKeywords} title='Email'>
+            <EmailProviderStatus keywords={searchKeywords.emailProvider} />
             <EnableNewsletters keywords={searchKeywords.enableNewsletters} />
             {hasNewslettersEnabled && <DefaultRecipients keywords={searchKeywords.defaultRecipients} />}
             <EmailsGroup keywords={searchKeywords.emails} newslettersEnabled={hasNewslettersEnabled} />
