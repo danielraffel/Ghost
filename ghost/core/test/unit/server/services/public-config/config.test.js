@@ -19,6 +19,7 @@ const allowedKeys = [
     'enableDeveloperExperiments',
     'stripeDirect',
     'mailgunIsConfigured',
+    'emailProvider',
     'emailAnalytics',
     'hostSettings',
     'klipy',
@@ -29,12 +30,23 @@ const allowedKeys = [
 
 describe('Public-config Service', function () {
     describe('Config Properties', function () {
+        let emailEnvironment;
+
         beforeEach(async function () {
+            emailEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase().startsWith('adapters__email__')));
+            for (const key of Object.keys(emailEnvironment)) {
+                delete process.env[key];
+            }
+
             sinon.stub(settingsCache, 'get')
                 .withArgs('site_uuid')
                 .returns('931ade9e-a4f1-4217-8625-34bd34250c16');
         });
         afterEach(async function () {
+            for (const key of Object.keys(process.env).filter(envKey => envKey.toLowerCase().startsWith('adapters__email__'))) {
+                delete process.env[key];
+            }
+            Object.assign(process.env, emailEnvironment);
             await configUtils.restore();
             sinon.restore();
         });
@@ -94,6 +106,30 @@ describe('Public-config Service', function () {
             let configProperties = getConfigProperties();
 
             assert.equal(configProperties.mailgunIsConfigured, false);
+        });
+
+        it('should report the environment config file as the email configuration source', function () {
+            configUtils.set('env', 'production');
+            configUtils.set('adapters:email', {
+                active: 'ses',
+                ses: {region: 'us-west-1'}
+            });
+
+            const configProperties = getConfigProperties();
+
+            assert.equal(configProperties.emailProvider.configurationSource, 'config.production.json');
+        });
+
+        it('should report environment variables as the email configuration source', function () {
+            process.env.adapters__email__active = 'ses';
+            configUtils.set('adapters:email', {
+                active: 'ses',
+                ses: {region: 'us-west-1'}
+            });
+
+            const configProperties = getConfigProperties();
+
+            assert.equal(configProperties.emailProvider.configurationSource, 'environment');
         });
 
         it('should NOT return stats by default', function () {

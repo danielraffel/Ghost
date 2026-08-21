@@ -9,7 +9,7 @@ const EmailProviderStatus: React.FC<{keywords: string[]}> = ({keywords}) => {
     const {config} = useGlobalData();
     const provider = config.emailProvider;
     const providerName = provider?.active === 'ses' ? 'Amazon SES' : provider?.active === 'mailgun' ? 'Mailgun' : 'Not configured';
-    const environment = config.environment === 'production' ? 'Production/release' : 'Development';
+    const configurationSource = provider?.configurationSource || `config.${config.environment}.json`;
 
     return (
         <TopLevelGroup keywords={keywords} navid='email-provider' testId='email-provider' title='Email provider'>
@@ -24,8 +24,10 @@ const EmailProviderStatus: React.FC<{keywords: string[]}> = ({keywords}) => {
                     </SettingGroupValueContent>
                 </SettingGroupValue>
                 <SettingGroupValue>
-                    <SettingGroupValueTitle>Environment</SettingGroupValueTitle>
-                    <SettingGroupValueContent>{environment}</SettingGroupValueContent>
+                    <SettingGroupValueTitle>Configuration source</SettingGroupValueTitle>
+                    <SettingGroupValueContent>
+                        {configurationSource === 'environment' ? 'Environment variables' : <code>{configurationSource}</code>}
+                    </SettingGroupValueContent>
                 </SettingGroupValue>
             </SettingGroupContent>
         </TopLevelGroup>

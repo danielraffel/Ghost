@@ -45,6 +45,12 @@ const getTinybirdStatsPayload = (statsConfig, siteUuid) => {
     return statsPayload;
 };
 
+const getEmailConfigurationSource = () => {
+    const usesEnvironmentVariables = Object.keys(process.env).some(key => key.toLowerCase().startsWith('adapters__email__'));
+
+    return usesEnvironmentVariables ? 'environment' : `config.${config.get('env')}.json`;
+};
+
 module.exports = function getConfigProperties() {
     const configProperties = {
         version: process.env.GHOST_BUILD_VERSION || ghostVersion.original,
@@ -65,13 +71,15 @@ module.exports = function getConfigProperties() {
             if (active) {
                 return {
                     active,
-                    isConfigured: !!(providerConfig && Object.keys(providerConfig).length > 0)
+                    isConfigured: !!(providerConfig && Object.keys(providerConfig).length > 0),
+                    configurationSource: getEmailConfigurationSource()
                 };
             }
 
             return {
                 active: config.get('bulkEmail:mailgun') ? 'mailgun' : null,
-                isConfigured: !!config.get('bulkEmail:mailgun')
+                isConfigured: !!config.get('bulkEmail:mailgun'),
+                configurationSource: getEmailConfigurationSource()
             };
         },
         emailAnalytics: config.get('emailAnalytics:enabled'),

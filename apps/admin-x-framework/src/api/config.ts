@@ -27,6 +27,7 @@ export type Config = {
     emailProvider?: {
         active: 'ses' | 'mailgun' | null;
         isConfigured: boolean;
+        configurationSource: 'environment' | `config.${string}.json`;
     };
     stats?: JSONObject & {
         endpoint?: string;
